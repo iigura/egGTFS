@@ -1,3 +1,5 @@
+# written by Koji Iigura 2022
+
 import sys
 import os
 import warnings
