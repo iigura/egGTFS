@@ -17,7 +17,8 @@ GTFS-JP は ZIP ファイルとしてまとめられているものですが、
 以下のようにして egGTFS に必要なソフトウェアをインストールしておいて下さい。
 
 * pip install pandas
-* pip install folium.h
+* pip install folium
+* pip install geopy
 * pip install selenium
 * pip install chromedriver-binary
 
