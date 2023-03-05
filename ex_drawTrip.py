@@ -1,8 +1,9 @@
 import egGTFS
-gtfs=egGTFS.open('AkitaChuoKotsuGTFS')
+gtfs=egGTFS.open('bus-akitachuoukotsu.zip')
 
-# targetTripID=gtfs.trips.trip_id(0)
-targetTripID='広面御所野線（平日）400広面御所野線(1)20'
+targetIndex=int(len(gtfs.trips.data)/2)
+targetTripID=gtfs.trips.trip_id(targetIndex)
+print("generation trip shape '"+gtfs.trips.trip_id(targetIndex)+"' ...")
 m=gtfs.getTripMap(targetTripID)
 
 m.save('ex_trip.html')

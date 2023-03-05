@@ -1,4 +1,5 @@
-# written by Koji Iigura 2022
+# egGTFS ver. 2.0
+# Copyright (C) 2022 - 2023 Koji Iigura
 
 import sys
 import os
@@ -7,6 +8,8 @@ import math
 import re
 from types import MethodType
 import inspect
+import zipfile
+from io import BytesIO
 
 import pandas as pd
 import numpy as np
@@ -22,7 +25,7 @@ import chromedriver_binary
 
 # usage:
 #	import egGTFS
-#	gtfs=egGTFS.open('targetGtfsDir')
+#	gtfs=egGTFS.open('targetGtfsZipFilePath')
 #	gtfs.agency.dump()
 #	gtfs.agency_jp.dump()
 
@@ -117,6 +120,30 @@ class Time:
 class TimeDelta(Time): pass
 class TimeDiff(Time):  pass
 
+class AreaRect:
+    minLat=360
+    maxLat=0
+    minLon=360
+    maxLon=0
+
+    def union(self,inAreaRect):
+        self.minLat=min(self.minLat,inAreaRect.minLat)
+        self.maxLat=max(self.maxLat,inAreaRect.maxLat)
+        self.minLon=min(self.minLon,inAreaRect.minLon)
+        self.maxLon=max(self.maxLon,inAreaRect.maxLon)
+
+    def applyScale(self,inScale):
+        dLat=self.maxLat-self.minLat
+        dLon=self.maxLon-self.minLon
+        centerLat=(self.minLat+self.maxLat)/2.0
+        centerLon=(self.minLon+self.maxLon)/2.0
+        self.minLat=centerLat-dLat/2*inScale
+        self.maxLat=centerLat+dLat/2*inScale
+        self.minLon=centerLon-dLon/2*inScale
+        self.maxLon=centerLon+dLon/2*inScale
+
+    def getBounds(self):
+        return [[self.minLat,self.minLon],[self.maxLat,self.maxLon]]
 
 # -------------------------------------------------------------------
 
@@ -125,14 +152,14 @@ class indexSet:
         for t in inFieldNameList: setattr(self,t,getIndex(inHeaderIndex,t))
         self.fieldNameList=inFieldNameList
 
-def getDataFrame(inGtfsRootDir,inFileName,optional=False):
-    path=os.path.join(inGtfsRootDir,inFileName)
-    if not os.path.isfile(path):
+def getDataFrame(inZipFileObj,inFileName,optional=False):
+    if not inFileName in inZipFileObj.namelist():
         if optional:
             return None,False
         else:
             print('ERROR: no '+inFileName+'.'); sys.exit()	
-    return pd.read_csv(path),True
+    binData=inZipFileObj.read(inFileName)
+    return pd.read_csv(BytesIO(binData)),True
 
 # idx=inHeaderIndex, name=inFieldNameStr
 def getIndex(idx,name): return idx.get_loc(name) if name in idx else -1
@@ -180,55 +207,19 @@ def getitemBody(inSelf,inID):
     if n==1 and inSelf.recordClass!=None: return inSelf.recordClass(t[0])
     return t
 
-def initReader(inSelf,inGtfsRootDir,inFileName,inFieldNameList,inPrimaryFieldName='',inRecordClass=None):
-    inSelf.valid=False
-    inSelf.fileName=inFileName
-    inSelf.df,df_result=getDataFrame(inGtfsRootDir,inFileName)
-    inSelf.fieldNameList=inFieldNameList
-    inSelf.index=indexSet(inSelf.df.columns,inSelf.fieldNameList)
-    inSelf.data=np.asarray(inSelf.df)
-    if len(inSelf.data)>0:
-        inSelf.hasRecord=True
-    else:
-        inSelf.hasRecord=False
-    addGetters(inSelf,inSelf.fieldNameList)
-
-    inSelf.primaryFieldName=inPrimaryFieldName
-    if inPrimaryFieldName!='':
-        inSelf.primaryFieldNo=getattr(inSelf.index,inPrimaryFieldName)
-
-    inSelf.recordClass=inRecordClass
-
-    if inRecordClass!=None:
-        inSelf.__getitem__=MethodType(getitemBody,inSelf)
-
-    inSelf.valid=True
-
-def initReaderOptional(inSelf,inGtfsRootDir,inFileName,inFieldNameList):
-    inSelf.valid=False
-    inSelf.fileName=inFileName
-    inSelf.df,df_result=getDataFrame(inGtfsRootDir,inFileName,optional=True)
-    if df_result==False: return
-
-    # same as initReader
-    inSelf.fieldNameList=inFieldNameList
-    inSelf.index=indexSet(inSelf.df.columns,inSelf.fieldNameList)
-    inSelf.data=np.asarray(inSelf.df)
-    addGetters(inSelf,inSelf.fieldNameList)
-    inSelf.valid=True
-
 # -------------------------------------------------------------------
 #   base classes
 # -------------------------------------------------------------------
 class RecordSet:
-    def __init__(self,inGtfsRootDir,inFileName,inFieldNameList,
+    def __init__(self,inZipFileObj,inFileName,inFieldNameList,
                  inPrimaryFieldName,inRecordClass,
                  optional=False):
         self.valid=False
         self.hasRecord=False
         self._index=-1
         self.fileName=inFileName
-        self.df,df_result=getDataFrame(inGtfsRootDir,inFileName,optional=optional)
+        self.df,df_result=getDataFrame(inZipFileObj,inFileName,optional=optional)
+        self.optional=optional
         if optional and df_result==False: return
 
         self.fieldNameList=inFieldNameList
@@ -263,6 +254,50 @@ class RecordSet:
         ret=self.recordClass(self.data[self._index])
         self._index+=1
         return ret
+
+    # ex: filter(lambda inGTFS,inRecord: inRecord.id=='0001')
+    def filter(self,inPredicate,update=True):
+        self.gtfs.replaceFiltered_agency()
+        filtered=[]
+        n=len(self.data)
+        for i in range(n):
+            record=self.recordClass(self.data[i])
+            if inPredicate(self.gtfs,record): filtered.append(self.data[i])
+        if update: self.data=np.array(filtered)
+        return filtered
+
+    def dump(self):
+        if self.valid:
+            print("FileName:"+self.fileName)
+            for t in self.data: print(t)
+        else:
+            print('NO '+self.fileName)
+
+    def save(self,inZipFileObj):
+        if self.optional and self.valid==False: return # do nothing
+        if self.valid:
+            with inZipFileObj.open(self.fileName,"w") as destFile:
+                fieldInfoStr=",".join(self.fieldNameList)
+                destFile.write((fieldInfoStr+"\r\n").encode())
+
+                for record in self.data:
+                    n=len(self.fieldNameList)
+                    s=[0]*n
+                    for i in range(n):
+                        fieldName=self.fieldNameList[i]
+                        t=getattr(self.index,fieldName)
+                        if t<0:
+                            s[i]=""
+                        else:
+                            v=record[t]
+                            if v==None or (isinstance(v,float) and math.isnan(v)):
+                                s[i]=""
+                            else:
+                                s[i]=str(v)
+                    fieldValueStr=",".join(s)
+                    destFile.write((fieldValueStr+"\r\n").encode())
+        else:
+            raise RuntimeError("no valid "+self.fileName+" data.")
     
 class Record:
     def __setattr__(self,inName,inValue):
@@ -270,12 +305,13 @@ class Record:
         self.__dict__[inName]=inValue
 
 class SingleRecord:
-    def __init__(self,inGtfsRootDir,inFileName,inFieldNameList,inPrimaryFieldName,
+    def __init__(self,inZipFileObj,inFileName,inFieldNameList,inPrimaryFieldName,
                  optional=False):
         self.valid=False
         self.hasRecord=False
         self.fileName=inFileName
-        self.df,df_result=getDataFrame(inGtfsRootDir,inFileName,optional=optional)
+        self.df,df_result=getDataFrame(inZipFileObj,inFileName,optional=optional)
+        self.optional=optional
         if optional and df_result==False: return
 
         self.fieldNameList=inFieldNameList
@@ -299,6 +335,27 @@ class SingleRecord:
             for s in self.fieldNameList: print(s.ljust(n)+' = '+str(getattr(self,s)))
         else:
             print('NO '+self.fileName)
+
+    def save(self,inZipFileObj):
+        if self.optional and self.valid!=True: return # do nothing
+        if self.valid:
+            fieldInfoStr=",".join(self.fieldNameList)
+
+            valueList=[]
+            for fieldName in self.fieldNameList:
+                v=getattr(self,fieldName)
+                if v==None or (isinstance(v,float) and math.isnan(v)):
+                    valueStr=""
+                else:
+                    valueStr=str(v)
+                valueList.append(valueStr)
+            fieldValueStr=",".join(valueList)
+            
+            with inZipFileObj.open(self.fileName,"w") as destFile:
+                destFile.write((fieldInfoStr+"\r\n").encode())
+                destFile.write((fieldValueStr+"\r\n").encode())
+        else:
+            raise RuntimeError("no valid agency data.")
 
 # -------------------------------------------------------------------
 
@@ -343,8 +400,8 @@ def sqrDistPos(inPos1,inPos2):
 # for agency.txt
 #--------------------------------------------------------------------
 class agency(SingleRecord):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'agency.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'agency.txt',
                          ['agency_id','agency_name','agency_url',
                           'agency_timezone','agency_lang','agency_phone',
                           'agency_fare_url','agency_email'],'agency_id')
@@ -353,8 +410,8 @@ class agency(SingleRecord):
 # for agency_jp.txt
 #--------------------------------------------------------------------
 class agency_jp(SingleRecord):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'agency_jp.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'agency_jp.txt',
                          ['agency_id','agency_official_name','agency_zip_number',
                           'agency_address','agency_president_pos',
                           'agency_president_name'],'agency_id',optional=True)
@@ -363,8 +420,8 @@ class agency_jp(SingleRecord):
 # for stops.txt
 #--------------------------------------------------------------------
 class stops(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'stops.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'stops.txt',
                          ['stop_id','stop_code','stop_name','stop_desc',
                           'stop_lat','stop_lon','zone_id','stop_url',
                           'location_type','parent_station','stop_timezone',
@@ -398,16 +455,13 @@ class stops_record(Record): pass
 # for routes.txt
 #--------------------------------------------------------------------
 class routes(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'routes.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'routes.txt',
                          ['route_id','agency_id',
                           'route_short_name','route_long_name',
                           'route_desc','route_type','route_url','route_color',
                           'route_text_color','jp_parent_route_id'],
                           'route_id',routes_record)
-
-    def dump(self):
-        for t in self.data: print(t)
 
 class routes_record(Record): pass
 
@@ -416,8 +470,8 @@ class routes_record(Record): pass
 # for routes_jp.txt
 #--------------------------------------------------------------------
 class routes_jp(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'routes_jp.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'routes_jp.txt',
                          ['route_id','route_update_date',
                           'origin_stop','via_stop','destination_stop'],
                           'route_id',routes_jp_record,
@@ -430,8 +484,8 @@ class routes_jp_record(Record): pass
 # for trips.txt
 #--------------------------------------------------------------------
 class trips(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'trips.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'trips.txt',
                          ['route_id','service_id','trip_id','trip_headsign',
                           'trip_short_name','direction_id','block_id',
                           'shape_id','wheelchair_accessible','bikes_allowed',
@@ -445,8 +499,8 @@ class trips_record(Record): pass
 # for office_jp.txt
 #--------------------------------------------------------------------
 class office_jp(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'office_jp.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'office_jp.txt',
                          ['office_id','office_name','office_url','office_phone'],
                          'office_id',office_jp_record,
                          optional=True)
@@ -458,8 +512,8 @@ class office_jp_record(Record): pass
 # for stop_times.txt
 #--------------------------------------------------------------------
 class stop_times(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'stop_times.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'stop_times.txt',
                          ['trip_id','arrival_time','departure_time',
                           'stop_id','stop_sequence','stop_headsign',
                           'pickup_type','dtop_off_type','shape_dist_traveled',
@@ -522,8 +576,8 @@ class stop_times_record(Record): pass
 # for calendar.txt
 #--------------------------------------------------------------------
 class calendar(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'calendar.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'calendar.txt',
                          ['service_id','monday','tuesday','wednesday','thursday',
                           'friday','saturday','sunday','start_date','end_date'],
                          'service_id',calendar_record)
@@ -535,8 +589,8 @@ class calendar_record(Record): pass
 # for calendar_dates.txt
 #--------------------------------------------------------------------
 class calendar_dates(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'calendar_dates.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'calendar_dates.txt',
                          ['service_id','date','exception_type'],
                          'service_id',calendar_dates_record)
 
@@ -554,8 +608,8 @@ class calendar_dates_record(Record): pass
 # for fare_attributes.txt
 #--------------------------------------------------------------------
 class fare_attributes(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'fare_attributes.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'fare_attributes.txt',
                          ['fare_id','price','currency_type',
                           'payment_method','transfers','transfer_duration'],
                          'fare_id',fare_attributes_record)
@@ -566,8 +620,8 @@ class fare_attributes_record(Record): pass
 # for fare_rules.txt
 #--------------------------------------------------------------------
 class fare_rules(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'fare_rules.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'fare_rules.txt',
                          ['fare_id','route_id','origin_id',
                           'destination_id','contains_id'],
                          'route_id',fare_rules_record)
@@ -585,8 +639,8 @@ class fare_rules_record(Record): pass
 # for shapes.txt
 #--------------------------------------------------------------------
 class shapes(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'shapes.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'shapes.txt',
                          ['shape_id','shape_pt_lat','shape_pt_lon',
                           'shape_pt_sequence','shape_dist_traveleded'],
                          'shape_id',shapes_record,
@@ -620,8 +674,8 @@ class shapes_record(Record):
 # for frequencies.txt
 #--------------------------------------------------------------------
 class frequencies(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'frequencies.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'frequencies.txt',
                          ['trip_id','start_time','end_time',
                           'headway_secs','exact_times'],
                          'trip_id',frequencies_record,
@@ -634,8 +688,8 @@ class frequencies_record(Record): pass
 # for transfers.txt
 #--------------------------------------------------------------------
 class transfers(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'transfers.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'transfers.txt',
                          ['from_stop_id','to_stop_id',
                           'transfer_type','min_transfer_type'],
                           'from_stop_id',transfers_record,
@@ -648,8 +702,8 @@ class transfers_record(Record): pass
 # for feed_info.txt
 #--------------------------------------------------------------------
 class feed_info(SingleRecord):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'feed_info.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'feed_info.txt',
                          ['feed_publisher_name','feed_publisher_url','feed_lang',
                           'feed_start_datefeed_end_date','feed_version'],None)
 
@@ -658,8 +712,8 @@ class feed_info(SingleRecord):
 # for translations.txt
 #--------------------------------------------------------------------
 class translations(RecordSet):
-    def __init__(self,inGtfsRootDir):
-        super().__init__(inGtfsRootDir,'translations.txt',
+    def __init__(self,inZipFileObj):
+        super().__init__(inZipFileObj,'translations.txt',
                          ['trans_id','lang','translation'],
                           'trans_id',translations_record,
                           optional=True)
@@ -671,25 +725,30 @@ class translations_record(Record): pass
 # egGTFS 
 #====================================================================
 class egGTFS:
-    def __init__(self,inGtfsRootDir):
-        self.rootDir        =inGtfsRootDir
-        self.agency         =agency(inGtfsRootDir)
-        self.agency_jp      =agency_jp(inGtfsRootDir)
-        self.stops          =stops(inGtfsRootDir)
-        self.routes         =routes(inGtfsRootDir)
-        self.routes_jp      =routes_jp(inGtfsRootDir)
-        self.trips          =trips(inGtfsRootDir)
-        self.office_jp      =office_jp(inGtfsRootDir)
-        self.stop_times     =stop_times(inGtfsRootDir)
-        self.calendar       =calendar(inGtfsRootDir)
-        self.calendar_dates =calendar_dates(inGtfsRootDir)
-        self.fare_attributes=fare_attributes(inGtfsRootDir)
-        self.fare_rules     =fare_rules(inGtfsRootDir)
-        self.shapes         =shapes(inGtfsRootDir)
-        self.frequencies    =frequencies(inGtfsRootDir)
-        self.transfers      =transfers(inGtfsRootDir)
-        self.feed_info      =feed_info(inGtfsRootDir)
-        self.translations   =translations(inGtfsRootDir)
+    def __init__(self,inGtfsZipFilePath):
+        self.gtfsZipFilePath=inGtfsZipFilePath
+        try:
+            zf=self.gtfsZipFileObj =zipfile.ZipFile(inGtfsZipFilePath,'r')
+        except:
+            print("ERROR: can not open "+inGtfsZipFilePath)
+            sys.exit()
+        self.agency         =agency(zf);            self.agency.gtfs            =self
+        self.agency_jp      =agency_jp(zf);         self.agency_jp.gtfs         =self
+        self.stops          =stops(zf);             self.stops.gtfs             =self
+        self.routes         =routes(zf);            self.routes.gtfs            =self
+        self.routes_jp      =routes_jp(zf);         self.routes_jp.gtfs         =self
+        self.trips          =trips(zf);             self.trips.gtfs             =self
+        self.office_jp      =office_jp(zf);         self.office_jp.gtfs         =self
+        self.stop_times     =stop_times(zf);        self.stop_times.gtfs        =self
+        self.calendar       =calendar(zf);          self.calendar.gtfs          =self
+        self.calendar_dates =calendar_dates(zf);    self.calendar_dates.gtfs    =self
+        self.fare_attributes=fare_attributes(zf);   self.fare_attributes.gtfs   =self
+        self.fare_rules     =fare_rules(zf);        self.fare_rules.gtfs        =self
+        self.shapes         =shapes(zf);            self.shapes.gtfs            =self
+        self.frequencies    =frequencies(zf);       self.frequencies.gtfs       =self
+        self.transfers      =transfers(zf);         self.transfers.gtfs         =self
+        self.feed_info      =feed_info(zf);         self.feed_info.gtfs         =self
+        self.translations   =translations(zf);      self.translations.gtfs      =self
 
     def makeName(self,inName):
         beginSpan='<span style="white-space: nowrap;">'
@@ -723,18 +782,20 @@ class egGTFS:
         m.fit_bounds([[latMin,lonMin],[latMax,lonMax]])
         return m
 
-    def getShapeMap(self,inShapeID):
+    def getShapeMap(self,inShapeID,weight=8,color="#FF0000"):
         m=folium.Map()
         latMin,latMax=180,0
         lonMin,lonMax=180,0
         shapesRecord=self.shapes[inShapeID]
         points=[]
+        w=weight
+        c=color
         for s in shapesRecord:
             pos=s.pos()
             points.append(pos)
             latMin,latMax=min(latMin,pos[0]),max(latMax,pos[0])
             lonMin,lonMax=min(lonMin,pos[1]),max(lonMax,pos[1])
-        folium.PolyLine(points).add_to(m)
+        folium.PolyLine(points,weight=w,color=c).add_to(m)
         m.fit_bounds([[latMin,lonMin],[latMax,lonMax]])
         return m
 
@@ -751,10 +812,10 @@ class egGTFS:
         trip=self.trips[inTripID]
         return trip.shape_id if trip!=None else None
 
-    def getTripMap(self,inTripID):
+    def getTripMap(self,inTripID,weight=8,color="#0000FF"):
         m=folium.Map()
-        latMin,latMax=180,0
-        lonMin,lonMax=180,0
+        latMin,latMax=360,0
+        lonMin,lonMax=360,0
         shapeID=self.getShapeIdByTripID(inTripID)
         shapeArray=self.shapes.getShapeArray(shapeID)
         points=[]
@@ -763,7 +824,9 @@ class egGTFS:
             points.append(pos)
             latMin,latMax=min(latMin,pos[0]),max(latMax,pos[0])
             lonMin,lonMax=min(lonMin,pos[1]),max(lonMax,pos[1])
-        folium.PolyLine(points).add_to(m)
+        w=weight
+        c=color
+        folium.PolyLine(points,weight=w,color=c).add_to(m)
 
         stopArray=self.stop_times.getSeqByTripID(inTripID)
         for s in stopArray:
@@ -775,6 +838,26 @@ class egGTFS:
 
         m.fit_bounds([[latMin,lonMin],[latMax,lonMax]])
         return m
+
+    def drawShape(self,inMap,inShapeID,weight=8,color="#FF0000"):
+        shapeArray=self.shapes.getShapeArray(inShapeID)
+        points=[]
+        latMin,latMax=360,0
+        lonMin,lonMax=360,0
+        for s in shapeArray:
+            pos=self.shapes.pos(s)
+            points.append(pos)
+            latMin,latMax=min(latMin,pos[0]),max(latMax,pos[0])
+            lonMin,lonMax=min(lonMin,pos[1]),max(lonMax,pos[1])
+        w=weight
+        c=color
+        folium.PolyLine(points,weight=w,color=c).add_to(inMap)
+        area=AreaRect()
+        area.minLat=latMin
+        area.maxLat=latMax
+        area.minLon=lonMin
+        area.maxLon=lonMax
+        return area
 
     def getBusPos(self,inTripID,inHour_or_TimeStr,inMinute=None,inSecond=None,
                   epsilon=0.00003):
@@ -968,11 +1051,36 @@ class egGTFS:
         lon=t*dLon+inPosList[i][1]
         return [lat,lon]
 
+    def save(self,inOutputZipFilePath):
+        targetZipFilePath=inOutputZipFilePath if inOutputZipFilePath.endswith(".zip") else inOutputZipFilePath+".zip"
+        if(os.path.isfile(targetZipFilePath)): os.remove(targetZipFilePath)
 
-def open(inGtfsRootDir):
-    if os.path.exists(inGtfsRootDir)==False:
-        raise FileNotFoundError("ERROR: no such GTFS root dir '"+inGtfsRootDir+"'")
-    return egGTFS(inGtfsRootDir)
+        gtfsObjName=[ "agency","agency_jp","stops","routes","routes_jp","trips",
+            "office_jp","stop_times","calendar","calendar_dates","fare_attributes",
+            "fare_rules","shapes","frequencies","transfers","feed_info","translations"]
+        with zipfile.ZipFile(targetZipFilePath,"a") as destZf:
+            for objName in gtfsObjName:
+                t=getattr(self,objName)
+                saveMethod=getattr(t,"save")
+                saveMethod(destZf)
+
+    # ---------------------------------------------------------------
+    # filtered GTFS
+    # ---------------------------------------------------------------
+    def replaceFiltered_agency(self):
+        self.agency.agency_id="Not_a_correct_GTFS_because_it_is_filtered."
+        self.agency.agency_name="Not a correct GTFS because it is filtered."
+        self.agency.agency_url="https://github.com/iigura/egGTFS"
+        self.agency.agency_phone=""
+        self.agency.agency_fare_url=""
+        self.agency.agency_email=""
+
+def version(): return "2.0"
+
+def open(inGtfsZipFilePath):
+    if os.path.exists(inGtfsZipFilePath)==False:
+        raise FileNotFoundError("ERROR: no such GTFS file '"+inGtfsZipFilePath+"'")
+    return egGTFS(inGtfsZipFilePath)
 
 def isArray(x): return hasattr(x,'__len__')
 
@@ -980,6 +1088,7 @@ def getMapImage(inURL,pngFileName='screenshot.png',width=800,height=800):
     options = Options()
     options.add_argument('--headless')
     driver = webdriver.Chrome(options=options)
+    # inURL='file:///Users/iigura/lab/bus/hm.html'
     driver.get(inURL)
     driver.set_window_size(width,height)
     driver.save_screenshot(pngFileName)

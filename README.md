@@ -1,24 +1,17 @@
-# egGTFS
-　egGTFS は、GTFS-JP を読み取る Python ライブラリです。
-GTFS-JP は ZIP ファイルとしてまとめられているものですが、
-現状、本ライブラリは展開したファイル群を対象としています。
-
-将来的には、
-直接 ZIP ファイルから情報を読み取れるようになるかもしれませんが、
-各種の ID 確認などを行う場合は、
-それぞれのファイル内に記述されている情報を確認する必要がありますので、
-当面は現状の方法を維持すると思います。
+# egGTFS ver. 2.0
+　egGTFS は、GTFS-JP 形式のファイルを読み書きする Python ライブラリです。
 
 # 対応している Python のバージョン
-　開発ならびに動作確認は Python 3.9.6 にて行っています。
+　開発ならびに動作確認は Python 3.10.7 にて行っています。
 
 # 必要なパッケージの準備
 　egGTFS では様々なオープンソースソフトウェアを利用しています。
 以下のようにして egGTFS に必要なソフトウェアをインストールしておいて下さい。
 
 * pip install pandas
-* pip install folium
+* pip install numpy
 * pip install geopy
+* pip install folium
 * pip install selenium
 * pip install chromedriver-binary
 
@@ -33,13 +26,13 @@ egGTFS のパッケージ化については、
 行うよう考えています。
 
 なお、egGTFS は、複数の GTFS 情報にも対応しています。
-詳しい使用例は同梱されている ex_busHeatMap.py など、
-ex_ から始まるファイルを参照して下さい。
+詳しい使用例は同梱されている ex\_busHeatMap.py など、
+ex\_ から始まるファイルを参照して下さい。
 
 ```
 import egGTFS
-# gtfs=egGTFS.open(展開した GTFS ファイルが含まれているディレクトリを文字列で指定）
-gtfs=egGTFS.open('targetGtfsDir')
+# gtfs=egGTFS.open(GTFS ファイル）
+gtfs=egGTFS.open('targetGtfsFile.zip')
 ```
 
 以下、変数 gtfs に、とある GTFS-JP データが読み込まれているものとして説明を行います。
@@ -197,8 +190,23 @@ True となります（対応するファイルは存在するので）。
 | transfers                      | from\_stop\_id   |          |
 | translations                   | trans\_id        |          |
 
+## フィルタ機能
+　複数のレコードを持つ構成ファイルマップオブジェクトには、
+filter メソッドが用意されています。
+
+使用方法は filter(フィルタ関数 [,update=True]) です。
+
+　フィルタ関数は、残したいレコードの場合のみ True を返す関数のことです。
+便宜上、フィルタ関数と表現していますが、lambda 式を直接記述しても構いません。
+デフォルトでは、filter 関数を実行すると、対象の構成ファイルマップオブジェクトの
+レコードがフィルタされたものに置き換えられます。
+更新したくない場合は、filter(フィルタ関数,update=False) として使用して下さい。
+
+具体的な使用方法は、サンプルプログラムとして ex\_filter.py を同梱していますので、
+そちらを参照して下さい。
+
 ## stop\_times の補足情報
-一般的に、ひとつの trip\_id に対応する stop\_times 内のレコードは
+　一般的に、ひとつの trip\_id に対応する stop\_times 内のレコードは
 複数となります。
 そのため、インデクサを用いて取得される値は、
 stop\_times\_record の配列となります。
@@ -237,16 +245,25 @@ shapes\_record クラスのインスタンスの配列となります。
 ```
 
 # egGTFS モジュールの関数
+## version
+　使用している egGTFS のバージョンを文字列で返します。
+
 ## open
 　GTFS オブジェクトを生成します。
-gtfs=egGTFS.open(dirPathStr) として使用し、
-dirPathStr には、展開した GTFS ファイルが存在するディレクトリを指定します。
-このディレクトリの直下には agency.txt などのファイルが存在するものとします。
+gtfs=egGTFS.open(gtfsFilePath) として使用します。
+指定するファイルパスには GTFS ファイルの拡張子 .zip まで含めて指定して下さい。
+
+## save
+　GTFS オブジェクトの現在の状態を新たな GTFS-JP 形式で保存します。
+gtfs.save(出力するファイル名) として使用します。
+与えられたファイル名が .zip で修了していない場合、
+自動的に .zip が追加されます。
 
 ## isArray
 　配列か否かを返します。
 egGTFS.isArray(x) などとして使用し、
 もし変数 x が配列であれば True を、さもなければ False を返します。
+
 
 # egGTFS クラスのメソッド
 　gtfs=egGTFS.open(dirPathStr) として生成した gtfs オブジェクトが持つ
@@ -264,6 +281,37 @@ egGTFS.isArray(x) などとして使用し、
 shapes.txt が存在しない場合は None を返します。
 
 使用方法は gtfs.getShapeIdByTripID(tripID) です。
+
+## drawShape
+　与えられた follium のマップオブジェクトに対し、
+与えられた shape ID のシェイプを上書きします。
+
+使用方法は gtfs.drawShape(map,shapeID[,weight=8,color="#FF0000"]) です。
+weight は描画する線の太さを表し、
+color は RRGGBB にて指定します。
+
+戻り値は、描画したシェイプを取り囲む最小の領域を表す
+AreaRect オブジェクトのインスタンスです。
+
+## getShapeMap
+　指定した shape ID の経路を描いた follium の地図オブジェクトを返します。
+
+使用方法は gtfs.getShapeMap(shpeID[,weight=8,color="#FF0000"]) です。
+weight は描画する線の太さを表し、
+color は RRGGBB にて指定します。
+
+詳しくは ex\_makeShapeHTML.py を参照して下さい。
+
+## getTripMap
+　指定した trip ID のシェイプならびにバス停を描画した
+follium の地図オブジェクトを返します。
+
+使用方法は gtfs.getTripMap(shpeID[,weight=8,color="#0000FF"]) です。
+weight は描画する線の太さを表し、
+color は RRGGBB にて指定します。
+
+詳しくは ex\_drawTrip.py を参照して下さい。
+
 
 ## getPosListDistance
 　与えられた [[lat1,lon1],[lat2,lon2], ... [latN,lonN]] の配列に対し、

@@ -2,14 +2,13 @@ import egGTFS
 import folium
 from folium.plugins import HeatMap
 
-gtfsDir='AkitaChuoKotsuGTFS'
-# gtfsDir='GTFS-JP'
+gtfsFilePath='bus-akitachuoukotsu.zip'
 searviceID='平日'
 searchStartTime=egGTFS.Time(7,0,0)
 searchEndTime  =egGTFS.Time(8,0,0)
 searchTimeDelta=egGTFS.TimeDelta(0,1,0)
 
-gtfs=egGTFS.open(gtfsDir)
+gtfs=egGTFS.open(gtfsFilePath)
 if searchEndTime<=searchStartTime: raise ValueError('invalid search time.')
 
 latMin,latMax=180,0
