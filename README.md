@@ -1,32 +1,23 @@
-# egGTFS ver. 2.0
-　egGTFS は、GTFS-JP 形式のファイルを読み書きする Python ライブラリです。
+# egGTFS ver. 2.1
+　egGTFS は、GTFS-JP 形式のファイルを読み書きする
+Python ライブラリです。
 
 # 対応している Python のバージョン
-　開発ならびに動作確認は Python 3.10.7 にて行っています。
+　開発ならびに動作確認は Python 3.11.2 にて行っていますが、
+バージョン 3 系列の Python であれば動作すると思います。
 
-# 必要なパッケージの準備
-　egGTFS では様々なオープンソースソフトウェアを利用しています。
-以下のようにして egGTFS に必要なソフトウェアをインストールしておいて下さい。
-
-* pip install pandas
-* pip install numpy
-* pip install geopy
-* pip install folium
-* pip install selenium
-* pip install chromedriver-binary
+# インストール方法
+　https://github.com/iigura/egGTFS から ZIP 形式もしくは
+git clone 等として egGTFS に関するファイルを取得します。
+その後、pip install ./egGTFS/pkg などとして
+インストールして下さい。
 
 # 使い方
-　egGTFS はパッケージ化されていませんので、egGTFS.py を
-作業ディレクトリにコピーします。
-その後、egGTFS をインポートした後、egGTFS.open 関数を用いて
+　egGTFS をインポートした後、egGTFS.open 関数を用いて
 GTFS 情報を egGTFS に読み込ませます。
 
-egGTFS のパッケージ化については、
-ユーザーからのフィードバックがある程度蓄えられた時点で
-行うよう考えています。
-
-なお、egGTFS は、複数の GTFS 情報にも対応しています。
-詳しい使用例は同梱されている ex\_busHeatMap.py など、
+　egGTFS は、複数の GTFS 情報にも対応しています。
+詳しい使用例は同梱されている samples/ex\_busHeatMap.py など、
 ex\_ から始まるファイルを参照して下さい。
 
 ```
@@ -177,7 +168,6 @@ True となります（対応するファイルは存在するので）。
 |--------------------------------|------------------|----------|
 | stops                          | stop\_id         |          |
 | routes                         | routes\_id       |          |
-| routes\_jp                     | routes\_id       |          |
 | trips                          | trip\_id         |          |
 | office\_jp                     | office\_id       |          |
 | stop\_times                    | trip\_id         | あり     |

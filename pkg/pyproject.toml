@@ -1,0 +1,19 @@
+[build-system]
+requires = ['setuptools']
+build-backend = 'setuptools.build_meta'
+
+[project]
+name = 'egGTFS'
+version = '2.1.0'
+description = 'egGTFS : A Python library for reading, writing, and visualizing GTFS-JP format files.'
+license = {text = 'MIT License'}
+authors = [
+  {name = 'Koji Iigura'},
+]
+dependencies = [
+	'pandas',
+	'numpy',
+	'geopy',
+	'folium',
+]
+
