@@ -19,10 +19,6 @@ from geopy.distance import geodesic
 import folium
 from folium.plugins import HeatMap
 
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-import chromedriver_binary
-
 # usage:
 #	import egGTFS
 #	gtfs=egGTFS.open('targetGtfsZipFilePath')
