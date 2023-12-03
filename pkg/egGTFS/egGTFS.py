@@ -1,4 +1,4 @@
-# egGTFS ver. 2.0
+# egGTFS ver. 2.1
 # Copyright (C) 2022 - 2023 Koji Iigura
 
 import sys
@@ -1071,7 +1071,7 @@ class egGTFS:
         self.agency.agency_fare_url=""
         self.agency.agency_email=""
 
-def version(): return "2.0"
+def version(): return "2.1"
 
 def open(inGtfsZipFilePath):
     if os.path.exists(inGtfsZipFilePath)==False:
@@ -1084,7 +1084,6 @@ def getMapImage(inURL,pngFileName='screenshot.png',width=800,height=800):
     options = Options()
     options.add_argument('--headless')
     driver = webdriver.Chrome(options=options)
-    # inURL='file:///Users/iigura/lab/bus/hm.html'
     driver.get(inURL)
     driver.set_window_size(width,height)
     driver.save_screenshot(pngFileName)
