@@ -1,4 +1,4 @@
-# egGTFS ver. 2.1
+# egGTFS ver. 2.1.1
 # Copyright (C) 2022 - 2023 Koji Iigura
 
 import sys
@@ -746,6 +746,8 @@ class egGTFS:
         self.feed_info      =feed_info(zf);         self.feed_info.gtfs         =self
         self.translations   =translations(zf);      self.translations.gtfs      =self
 
+    def __getitem__(self,fieldName): return getattr(self,fieldName)
+
     def makeName(self,inName):
         beginSpan='<span style="white-space: nowrap;">'
         endSpan='</span>'
@@ -1071,7 +1073,7 @@ class egGTFS:
         self.agency.agency_fare_url=""
         self.agency.agency_email=""
 
-def version(): return "2.1"
+def version(): return "2.1.1"
 
 def open(inGtfsZipFilePath):
     if os.path.exists(inGtfsZipFilePath)==False:
