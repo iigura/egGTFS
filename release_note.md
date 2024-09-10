@@ -1,4 +1,8 @@
-egGTFS ver.2.1 : release note 2023.12.1
+egGTFS ver.2.1.2 : release note 2024.9.10
+
+# ver. 2.1 から 2.1.2 への変更点
+PyPI に登録し、pip install egGTFS にてインストールできるようにしました。
+
 
 # ver. 2.0 から 2.1 への変更点
 ## pip install への対応

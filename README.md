@@ -1,4 +1,4 @@
-# egGTFS ver. 2.1
+# egGTFS ver. 2.1.2
 　egGTFS は、GTFS-JP 形式のファイルを読み書きする
 Python ライブラリです。
 
@@ -7,10 +7,7 @@ Python ライブラリです。
 バージョン 3 系列の Python であれば動作すると思います。
 
 # インストール方法
-　https://github.com/iigura/egGTFS から ZIP 形式もしくは
-git clone 等として egGTFS に関するファイルを取得します。
-その後、pip install ./egGTFS/pkg などとして
-インストールして下さい。
+　pip install egGTFS としてインストールして下さい。
 
 # 使い方
 　egGTFS をインポートした後、egGTFS.open 関数を用いて
